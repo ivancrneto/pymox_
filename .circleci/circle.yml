@@ -1,9 +1,0 @@
-version: 2
-
-machine:
-  environment:
-    CODECOV_TOKEN: 07a918bb-31b1-49fc-b4d9-55db4858a3fd
-
-test:
-  post:
-    - codecov --token=$CODECOV_TOKEN:
