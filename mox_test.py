@@ -16,9 +16,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import cStringIO
+try:
+    import cStringIO
+except ImportError:
+    from io import BytesIO as cStringIO
 import unittest
 import re
+import six
 import sys
 
 import mox
@@ -307,12 +311,13 @@ class RegexTest(unittest.TestCase):
 
   def testReprWithoutFlags(self):
     """repr should return the regular expression pattern."""
-    self.assert_(repr(mox.Regex(r"a\s+b")) == "<regular expression 'a\s+b'>")
+    self.assertEqual(
+      repr(mox.Regex(six.b(r"a\s+b"))), "<regular expression 'a\s+b'>")
 
   def testReprWithFlags(self):
     """repr should return the regular expression pattern and flags."""
-    self.assert_(repr(mox.Regex(r"a\s+b", flags=4)) ==
-                 "<regular expression 'a\s+b', flags=4>")
+    self.assertEqual(repr(mox.Regex(six.b(r"a\s+b"), flags=4)),
+                     "<regular expression 'a\s+b', flags=4>")
 
 
 class IsTest(unittest.TestCase):
@@ -394,8 +399,8 @@ class IsATest(unittest.TestCase):
 
   def testSpecialTypes(self):
     """Verify that IsA can handle objects like cStringIO.StringIO."""
-    isA = mox.IsA(cStringIO.StringIO())
-    stringIO = cStringIO.StringIO()
+    isA = mox.IsA(six.StringIO())
+    stringIO = six.StringIO()
     self.assert_(isA == stringIO)
 
 
@@ -1338,7 +1343,11 @@ class MoxTest(unittest.TestCase):
 
   def testCallOnNonCallableObject(self):
     """Test that you cannot call a non-callable object."""
-    mock_obj = self.mox.CreateMock(TestClass)
+    class NonCallable(object):
+      pass
+    noncallable = NonCallable()
+    self.assertNotIn('__call__', dir(noncallable))
+    mock_obj = self.mox.CreateMock(noncallable)
     self.assertRaises(TypeError, mock_obj)
 
   def testCallableObjectWithBadCall(self):
@@ -2044,7 +2053,7 @@ class MoxTest(unittest.TestCase):
     # Forgot to replay!
     try:
       foo.GetBar().ShowMeTheMoney()
-    except AttributeError, e:
+    except AttributeError as e:
       self.assertEquals('MockMethod has no attribute "ShowMeTheMoney". '
           'Did you remember to put your mocks in replay mode?', str(e))
 

@@ -69,6 +69,7 @@ from collections import deque
 import difflib
 import inspect
 import re
+import six
 import types
 import unittest
 
@@ -222,7 +223,7 @@ class UnexpectedMockCreationError(Error):
 
     if self._named_params:
       error += ", " + ", ".join(["%s=%s" % (k, v) for k, v in
-                                 self._named_params.iteritems()])
+                                 six.iteritems(self._named_params)])
 
     error += ")"
     return error
@@ -257,13 +258,23 @@ class Mox(object):
 
   # A list of types that should be stubbed out with MockObjects (as
   # opposed to MockAnythings).
-  _USE_MOCK_OBJECT = [types.ClassType, types.FunctionType, types.InstanceType,
-                      types.ModuleType, types.ObjectType, types.TypeType,
-                      types.MethodType, types.UnboundMethodType,
-                      ]
+  _USE_MOCK_OBJECT = [
+    getattr(types, 'ClassType', type),
+    types.FunctionType,
+    getattr(types, 'InstanceType', object),
+    types.ModuleType,
+    getattr(types, 'ObjectType', object),
+    getattr(types, 'TypeType', type),
+    types.MethodType,
+    getattr(types, 'UnboundMethodType', types.FunctionType),
+  ]
 
   # A list of types that may be stubbed out with a MockObjectFactory.
-  _USE_MOCK_FACTORY = [types.ClassType, types.ObjectType, types.TypeType]
+  _USE_MOCK_FACTORY = [
+    getattr(types, 'ClassType', type),
+    getattr(types, 'ObjectType', object),
+    getattr(types, 'TypeType', type),
+  ]
   if abc:
     _USE_MOCK_FACTORY.append(abc.ABCMeta)
 
@@ -344,7 +355,9 @@ class Mox(object):
       raise TypeError('Cannot mock a MockAnything! Did you remember to '
                       'call UnsetStubs in your previous test?')
 
-    if attr_type in self._USE_MOCK_OBJECT and not use_mock_anything:
+    if (attr_type in self._USE_MOCK_OBJECT or
+            isinstance(attr_to_replace, object) or
+            inspect.isclass(attr_to_replace)) and not use_mock_anything:
       stub = self.CreateMock(attr_to_replace)
     else:
       stub = self.CreateMockAnything(description='Stub for %s' % attr_to_replace)
@@ -473,6 +486,15 @@ class MockAnything:
       return '<MockAnything instance of %s>' % self._description
     else:
       return '<MockAnything instance>'
+
+  def __str__(self):
+    return self._CreateMockMethod('__str__')()
+
+  def __call__(self, *args, **kwargs):
+    return self._CreateMockMethod('__call__')(*args, **kwargs)
+
+  def __getitem__(self, i):
+    return self._CreateMockMethod('__getitem__')(i)
 
   def __getattr__(self, method_name):
     """Intercept method calls on this object.
@@ -805,6 +827,11 @@ class MockObject(MockAnything, object):
 
     # Verify the class we are mocking is callable.
     callable = hasattr(self._class_to_mock, '__call__')
+    # callable = callable and str(
+    #     type(self._class_to_mock.__call__)) not in [
+    #         "<class 'method-wrapper'>",  # python 3
+    #         "<type 'method-wrapper'>"  # python 2
+    #     ]
     if not callable:
       raise TypeError('Not callable')
 
@@ -905,9 +932,10 @@ class MethodSignatureChecker(object):
     except TypeError:
       raise ValueError('Could not get argument specification for %r'
                        % (method,))
-    if inspect.ismethod(method):
-      self._args = self._args[1:]  # Skip 'self'.
     self._method = method
+    if inspect.ismethod(self._method) or ('.' in
+        repr(self._method)) or (self._args and self._args[0] == 'self'):
+      self._args = self._args[1:]  # Skip 'self'.
     self._instance = None  # May contain the instance this is bound to.
 
     self._has_varargs = varargs is not None
@@ -961,10 +989,21 @@ class MethodSignatureChecker(object):
     #
     # NOTE: If a Func() comparator is used, and the signature is not
     # correct, this will cause extra executions of the function.
-    if inspect.ismethod(self._method):
+    # NOTE: '.' in repr(self._method) is very bad way to check if it's a bound
+    # method. Improve it as soon as possible.
+    if inspect.ismethod(self._method) or '.' in repr(self._method):
       # The extra param accounts for the bound instance.
       if len(params) > len(self._required_args):
         expected = getattr(self._method, 'im_class', None)
+        if not expected:
+          search = re.search(
+            '<(function|method) (?P<class>\w+)\.\w+ at \w+>',
+            str(repr(self._method)))
+          if search:
+            class_ = search.group('class')
+            members = dict(inspect.getmembers(self._method))
+            expected = members.get(class_, members.get('__globals__').get(
+                class_, None))
 
         # Check if the param is an instance of the expected class,
         # or check equality (useful for checking Comparators).
@@ -1006,7 +1045,7 @@ class MethodSignatureChecker(object):
       self._RecordArgumentGiven(arg_name, arg_status)
 
     # Ensure all the required arguments have been given.
-    still_needed = [k for k, v in arg_status.iteritems()
+    still_needed = [k for k, v in six.iteritems(arg_status)
                     if v == MethodSignatureChecker._NEEDED]
     if still_needed:
       raise AttributeError('No values given for arguments: %s'
@@ -1110,10 +1149,11 @@ class MockMethod(object):
     raise TypeError('MockMethod cannot be iterated. '
                     'Did you remember to put your mocks in replay mode?')
 
-  def next(self):
+  def __next__(self):
     """Raise a TypeError with a helpful message."""
     raise TypeError('MockMethod cannot be iterated. '
                     'Did you remember to put your mocks in replay mode?')
+  next = __next__
 
   def _PopNextMethod(self):
     """Pop the next method from our call queue."""
@@ -1174,6 +1214,9 @@ class MockMethod(object):
             self._name == rhs._name and
             self._params == rhs._params and
             self._named_params == rhs._named_params)
+
+  def __hash__(self):
+    return id(self)
 
   def __ne__(self, rhs):
     """Test whether this MockMethod is not equivalent to another MockMethod.
@@ -1321,7 +1364,7 @@ class Comparator:
       rhs: any python object
     """
 
-    raise NotImplementedError, 'method must be implemented by a subclass.'
+    raise (NotImplementedError, 'method must be implemented by a subclass.')
 
   def __eq__(self, rhs):
     return self.equals(rhs)
@@ -1504,7 +1547,10 @@ class Regex(Comparator):
       return False
 
   def __repr__(self):
-    s = '<regular expression \'%s\'' % self.regex.pattern
+    pattern = self.regex.pattern
+    if isinstance(pattern, six.binary_type):
+      pattern = pattern.decode()
+    s = '<regular expression \'{}\''.format(pattern)
     if self.regex.flags:
       s += ', flags=%d' % self.regex.flags
     s += '>'
@@ -1692,9 +1738,15 @@ class SameElementsAs(Comparator):
       # Fall back to slower list-compare if any of the objects are unhashable.
       expected = self._expected_list
       actual = actual_list
-      expected.sort()
-      actual.sort()
-    return expected == actual
+      for element in actual:
+        if element not in expected:
+            return False
+      for element in expected:
+        if element not in actual:
+          return False
+      return True
+    else:
+      return set(actual_list) == set(self._expected_list)
 
   def __repr__(self):
     return '<sequence with same elements as \'%s\'>' % self._expected_list
@@ -2054,7 +2106,6 @@ class MultipleTimesGroup(MethodGroup):
 
 class MoxMetaTestBase(type):
   """Metaclass to add mox cleanup and verification to every test.
-
   As the mox unit testing class is being constructed (MoxTestBase or a
   subclass), this metaclass will modify all test functions to call the
   CleanUpMox method of the test class after they finish. This means that
@@ -2063,7 +2114,6 @@ class MoxMetaTestBase(type):
   """
 
   def __init__(cls, name, bases, d):
-    super(MoxMetaTestBase, cls).__init__(name, bases, d)
     type.__init__(cls, name, bases, d)
 
     # also get all the attributes from the base classes to account
@@ -2071,27 +2121,21 @@ class MoxMetaTestBase(type):
     for base in bases:
       for attr_name in dir(base):
         if attr_name not in d:
-          try:
-            attr_value = getattr(base, attr_name)
-          except AttributeValue:
-            continue
-          d[attr_name] = attr_value
+          d[attr_name] = getattr(base, attr_name)
 
     for func_name, func in d.items():
       if func_name.startswith('test') and callable(func):
+
         setattr(cls, func_name, MoxMetaTestBase.CleanUpTest(cls, func))
 
   @staticmethod
   def CleanUpTest(cls, func):
     """Adds Mox cleanup code to any MoxTestBase method.
-
     Always unsets stubs after a test. Will verify all mocks for tests that
     otherwise pass.
-
     Args:
       cls: MoxTestBase or subclass; the class whose test method we are altering.
       func: method; the method of the MoxTestBase test class we wish to alter.
-
     Returns:
       The modified method.
     """
@@ -2120,17 +2164,17 @@ class MoxMetaTestBase(type):
     return new_method
 
 
-class MoxTestBase(unittest.TestCase):
-  """Convenience test class to make stubbing easier.
+_MoxTestBase = MoxMetaTestBase('_MoxTestBase', (unittest.TestCase, ), {})
 
+
+class MoxTestBase(_MoxTestBase):
+  """Convenience test class to make stubbing easier.
   Sets up a "mox" attribute which is an instance of Mox (any mox tests will
   want this), and a "stubs" attribute that is an instance of StubOutForTesting
   (needed at times). Also automatically unsets any stubs and verifies that all
   mock methods have been called at the end of each test, eliminating boilerplate
   code.
   """
-
-  __metaclass__ = MoxMetaTestBase
 
   def setUp(self):
     super(MoxTestBase, self).setUp()

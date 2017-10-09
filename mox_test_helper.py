@@ -124,7 +124,10 @@ try:
   class MyDictABC(object):
     __metaclass__ = abc.ABCMeta
 
-  MyDictABC.register(dict)
+  try:
+    MyDictABC.register(dict)
+  except AttributeError:
+    pass
 
   class CallableSubclassOfMyDictABC(MyDictABC):
 
