@@ -16,7 +16,7 @@ jobs:
       - run:
           command: |
             sudo pip install codecov==1.6.3 six
-            sudo pip install tox tox-pyenv
+            sudo pip install tox tox-pyenv flake8
       - run:
           command: |
             curl -L https://raw.githubusercontent.com/pyenv/pyenv-installer/master/bin/pyenv-installer | bash
@@ -24,11 +24,7 @@ jobs:
             echo 'eval "$(pyenv init -)"' >>~/.bash_profile
             echo 'eval "$(pyenv virtualenv-init -)"' >>~/.bash_profile
             source ~/.bash_profile
-            pyenv install 2.7.13
-            pyenv install 3.3.6
-            pyenv install 3.4.6
-            pyenv install 3.5.3
-            pyenv install 3.6.2
+            parallel -j 5 pyenv install ::: 2.7.13 3.3.6 3.4.6 3.5.3 3.6.2
             pyenv local 2.7.13 3.3.6 3.4.6 3.5.3 3.6.2
       - save_cache:
           paths:
@@ -37,6 +33,7 @@ jobs:
       - run:
           command: |
             source ~/.bash_profile
+            flake8
             tox
       - store_artifacts:
           path: test-reports
