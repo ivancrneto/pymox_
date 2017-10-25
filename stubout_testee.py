@@ -1,2 +1,2 @@
 def SampleFunction():
-  raise Exception('I should never be called!')
+    raise Exception('I should never be called!')
