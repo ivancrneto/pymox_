@@ -1,4 +1,4 @@
-#!/usr/bin/python2.4
+#!/usr/bin/env python
 #
 # Copyright 2008 Google Inc.
 #
@@ -364,6 +364,7 @@ class Mox(object):
                             'call UnsetStubs in your previous test?')
 
         if (attr_type in self._USE_MOCK_OBJECT or
+                # isinstance(attr_type, tuple(self._USE_MOCK_OBJECT)) or
                 isinstance(attr_to_replace, object) or
                 inspect.isclass(attr_to_replace)) and not use_mock_anything:
             stub = self.CreateMock(attr_to_replace)
@@ -420,7 +421,7 @@ class Mox(object):
             raise TypeError('Cannot mock a MockAnything! Did you remember to '
                             'call UnsetStubs in your previous test?')
 
-        if attr_type not in self._USE_MOCK_FACTORY:
+        if not inspect.isclass(attr_to_replace):
             raise TypeError('Given attr is not a Class.  Use StubOutWithMock.')
 
         factory = _MockObjectFactory(attr_to_replace, self)
@@ -838,7 +839,7 @@ class MockObject(MockAnything, object):
           __contains__.
 
         """
-        contains = self._class_to_mock.__dict__.get('__contains__', None)
+        contains = getattr(self._class_to_mock, '__contains__', None)
 
         if contains is None:
             raise TypeError('unsubscriptable object')
@@ -2176,14 +2177,21 @@ class MoxMetaTestBase(type):
     """
 
     def __init__(cls, name, bases, d):
-        type.__init__(cls, name, bases, d)
+        if six.PY3:  # pragma: nocover
+            super().__init__(name, bases, d)
+        else:
+            super(MoxMetaTestBase, cls).__init__(name, bases, d)
+        # type.__init__(cls, name, bases, d)
 
         # also get all the attributes from the base classes to account
         # for a case when test class is not the immediate child of MoxTestBase
         for base in bases:
             for attr_name in dir(base):
                 if attr_name not in d:
-                    d[attr_name] = getattr(base, attr_name)
+                    try:  # pragma: nocover
+                        d[attr_name] = getattr(base, attr_name)
+                    except AttributeError:
+                        continue
 
         for func_name, func in d.items():
             if func_name.startswith('test') and callable(func):

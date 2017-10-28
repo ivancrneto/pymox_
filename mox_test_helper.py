@@ -1,4 +1,4 @@
-#!/usr/bin/python2.4
+#!/usr/bin/env python
 #
 # Copyright 2008 Google Inc.
 #
@@ -26,7 +26,7 @@ See mox_test.MoxTestBaseTest for how this class is actually used.
 """
 
 import os
-
+import six
 import mox
 
 
@@ -85,6 +85,16 @@ class ExampleMoxTest(mox.MoxTestBase, ExampleMoxTestMixin):
         os.listdir(self.DIR_PATH)
         self.assertEqual([self.DIR_PATH], listdir_list)
 
+    def testRaisesWithStatement(self):
+        self.mox.StubOutWithMock(CallableClass, 'decision')
+
+        CallableClass.decision().AndReturn('raise')
+
+        self.mox.ReplayAll()
+        with self.assertRaises(Exception):
+            call = CallableClass(1, 2)
+            call.conditional_function()
+
 
 class TestClassFromAnotherModule(object):
     def __init__(self):
@@ -105,6 +115,29 @@ class ChildClassFromAnotherModule(TestClassFromAnotherModule):
         TestClassFromAnotherModule.__init__(self)
 
 
+class MetaClassFromAnotherModule(type):
+
+    def __new__(mcs, name, bases, attrs):
+        new_class = super(MetaClassFromAnotherModule, mcs).__new__(
+            mcs, name, bases, attrs)
+
+        new_class.x = 'meta'
+        return new_class
+
+
+class ChildClassWithMetaClass(six.with_metaclass(MetaClassFromAnotherModule,
+                              TestClassFromAnotherModule)):
+    """A child class with MetaClassFromAnotherModule.
+
+    Used to test corner cases usually only happening with meta classes.
+    """
+    def Value():
+        return 'Not mock'
+
+    def __init__(self, kw=None):
+        super(ChildClassWithMetaClass, self).__init__()
+
+
 class CallableClass(object):
     def __init__(self, one, two, nine=None):
         pass
@@ -114,6 +147,14 @@ class CallableClass(object):
 
     def Value():
         return 'Not mock'
+
+    def decision(self):
+        return
+
+    def conditional_function(self):
+        decision = self.decision()
+        if decision == 'raise':
+            raise Exception('exception raised')
 
 
 try:
