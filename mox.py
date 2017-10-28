@@ -2180,7 +2180,7 @@ class MoxMetaTestBase(type):
     """
 
     def __init__(cls, name, bases, d):
-        if six.PY3:
+        if six.PY3:  # pragma: nocover
             super().__init__(name, bases, d)
         else:
             super(MoxMetaTestBase, cls).__init__(name, bases, d)
@@ -2191,7 +2191,7 @@ class MoxMetaTestBase(type):
         for base in bases:
             for attr_name in dir(base):
                 if attr_name not in d:
-                    try:
+                    try:  # pragma: nocover
                         d[attr_name] = getattr(base, attr_name)
                     except AttributeError:
                         continue
