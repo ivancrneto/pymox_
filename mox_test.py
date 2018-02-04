@@ -981,7 +981,7 @@ class MockObjectTest(unittest.TestCase):
 
         mock_object = mox.MockObject(mox_test_helper.MyTestFunction)
         self.assertEqual(
-            mock_object._description, 'function')
+            mock_object._description, '<function MyTestFunction>')
 
     def testSetupModeWithValidCall(self):
         """Verify the mock object properly mocks a basic method call."""
@@ -1363,6 +1363,28 @@ class MoxTest(unittest.TestCase):
     def testCreateObject(self):
         """Mox should create a mock object."""
         self.mox.CreateMock(TestClass)
+
+    def testCreateObjectUsingSimpleImportedModule(self):
+        """Mox should create a mock object for a class from a module imported
+        using a simple 'import module' statement"""
+        self.mox.CreateMock(mox_test_helper.ExampleClass)
+
+    def testCreateObjectUsingSimpleImportedModuleClassMethod(self):
+        """Mox should create a mock object for a class from a module imported
+        using a simple 'import module' statement"""
+        example_obj = self.mox.CreateMock(mox_test_helper.ExampleClass)
+
+        self.mox.StubOutWithMock(mox_test_helper.ExampleClass, 'ClassMethod')
+        mox_test_helper.ExampleClass.ClassMethod().AndReturn(example_obj)
+
+        def call_helper_class_method():
+            return mox_test_helper.ExampleClass.ClassMethod()
+
+        self.mox.ReplayAll()
+        expected_obj = call_helper_class_method()
+        self.mox.VerifyAll()
+
+        self.assertEqual(expected_obj, example_obj)
 
     def testCreateMockOfType(self):
         self.mox.CreateMock(type)
@@ -2224,6 +2246,18 @@ class MoxTest(unittest.TestCase):
         self.mox.UnsetStubs()
         self.failIf(isinstance(foo.obj, mox.MockObject))
 
+    def testStubOutReWorks(self):
+        self.mox.StubOutWithMock(re, 'search')
+
+        re.search('a', 'ivan').AndReturn('true')
+
+        self.mox.ReplayAll()
+        result = TestClass().reSearch()
+        self.mox.VerifyAll()
+        self.mox.UnsetStubs()
+
+        self.assertEqual(result, 'true')
+
     def testForgotReplayHelpfulMessage(self):
         """If there is an AttributeError on a MockMethod, give users a helpful
         msg."""
@@ -2649,6 +2683,9 @@ class TestClass:
 
     def __iter__(self):
         pass
+
+    def reSearch(self):
+        return re.search('a', 'ivan')
 
 
 class ChildClass(TestClass):
